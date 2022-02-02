@@ -1,0 +1,304 @@
+---
+title: "ESM 244 Lab Week 5"
+author: "Casey O'Hara"
+output: html_document
+---
+
+### Attach required packages:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(here)
+
+
+# For Part 1 (PCA)
+library(ggfortify) # For PCA biplot
+library(palmerpenguins)
+library(patchwork)
+
+# For Part 2 (ggplot customization)
+library(readxl)
+library(gghighlight) # For useful highlighting
+library(lubridate) # For easier dates & times
+library(plotly) # Interactive graphs
+
+```
+
+# Part 1: Principal components analysis (PCA)
+
+Principal components analysis is an ordination method allowing us to glean as much about our multivariate data as possible in a simplified number of dimensions.
+
+Here, we'll use the `penguins` data within the `palmerpenguins` R package to explore variable relationships and clustering by species in a PCA biplot. For this example with PCA, we will only use the structure size measurements (bill length and depth, mass, and flipper length).
+
+```{r}
+penguin_clean <- penguins %>%
+  drop_na()
+
+penguin_pca <- penguin_clean %>%
+  dplyr::select(body_mass_g, ends_with("_mm")) %>%
+  scale() %>%
+  prcomp()
+
+
+autoplot(penguin_pca,
+     	data = penguin_clean,
+     	loadings = TRUE,
+     	colour = 'species',
+     	loadings.label = TRUE,
+     	loadings.colour = "black",
+     	loadings.label.colour = "black",
+     	loadings.label.vjust = -0.5
+     	) +
+  scale_color_manual(values = c("blue","purple","orange")) +
+  scale_fill_manual(values = c("blue","purple","orange")) +
+  theme_minimal()
+
+# It's not perfect, but it's enough for now...
+```
+
+``` {r}
+# Variance explained by each PC
+screeplot(penguin_pca, type = "lines")
+screeplot(penguin_pca, type = "barplot")
+
+# See the loadings (weighting for each principal component)
+penguin_pca$rotation
+
+```
+
+## Biplot loadings by hand
+
+
+```{r}
+loadings_df <- data.frame(penguin_pca$rotation) %>%
+  mutate(axis = row.names(.))
+
+new_pts_df <- data.frame(penguin_pca$x)
+
+ggplot() +
+  geom_point(data = new_pts_df, aes(x = PC1, y = PC2), color = 'blue') +
+  geom_segment(data = loadings_df,
+               x = 0, y = 0, aes(xend = PC1, yend = PC2, group = axis),
+               arrow = arrow(length = unit(.25, 'cm'))) +
+  geom_text(data = loadings_df,
+            aes(x = PC1, y = PC2, label = axis), vjust = 0, nudge_y = .01) +
+  theme_minimal()
+```
+## Screeplot by hand
+
+```{r}
+sd_vec <- penguin_pca$sdev
+var_vec <- sd_vec^2 ### standard deviation is sqrt of variance!
+pc_names <- colnames(penguin_pca$rotation)
+
+pct_expl_df <- data.frame(v = var_vec / sum(var_vec),
+                          pc = fct_inorder(pc_names)) %>%
+  mutate(pct_lbl = paste0(round(v*100, 1), '%'))
+
+ggplot(pct_expl_df, aes(x = pc, y = v)) +
+  geom_col() +
+  geom_text(aes(label = pct_lbl), vjust = 0, nudge_y = .002) +
+  labs(x = 'Principal component', y = 'Variance explained')
+```
+
+
+
+# Part 2: `ggplot` customization & reading in different file types
+
+We spent some time in ESM 206 customizing our data visualizations. Let's add some more tools, including:
+- Highlight spaghetti plots with `gghighlight`
+- An interactive graph with `plotly`
+
+Here, we'll also read in stored .txt and .xlsx, and files from a URL to build our toolkit for how to read in data.
+
+**Data:** NOAA [Foreign Fisheries Trade Data](https://www.fisheries.noaa.gov/national/sustainable-fisheries/foreign-fishery-trade-data)
+
+#### Read in a .xlsx file, & do some wrangling
+
+```{r}
+fish_noaa <- read_excel(here("data","foss_landings.xlsx")) %>%
+  clean_names() %>%
+  mutate(across(where(is.character), tolower)) %>% # convert all characters to lowercase
+  mutate(nmfs_name = str_sub(nmfs_name, end = -4)) %>%  # remove last 4 characters
+  filter(confidentiality == "public")
+```
+
+Now, let's make and customize a graph:
+
+```{r}
+fish_plot <- ggplot(data = fish_noaa, aes(x = year, y = pounds, group = nmfs_name)) +
+  geom_line(aes(color = nmfs_name)) +
+  theme_minimal()
+
+# Make it interactive:
+ggplotly(fish_plot)
+
+# Highlight series based on condition(s):
+ggplot(data = fish_noaa, aes(x = year, y = pounds, group = nmfs_name)) +
+  geom_line() +
+  gghighlight(nmfs_name == "tunas") + # Highlight just tunas
+  theme_minimal()
+
+ggplot(data = fish_noaa, aes(x = year, y = pounds, group = nmfs_name)) +
+  geom_line(aes(color = nmfs_name)) +
+  gghighlight(max(pounds) > 1e8) + # Highlight just tunas
+  theme_minimal()
+```
+
+#### Read in data from a URL, `lubridate()` refresher, `mutate()` as a workhorse to transform variables
+
+- See paletteer color palettes:
+- Discrete with `View(palettes_d_names)`
+- Continuous with `View(palettes_c_names)`
+
+**Data:** Monroe Water Treatment Plant Daily Electricity Use
+
+Accessed from [data.gov](https://catalog.data.gov/dataset/monroe-water-treatment-plant-energy-and-water-consumption/resource/5afc8aa7-b485-4173-bcc6-c56270efedb8)
+
+Google: data.gov Monroe Water Treatment Plant Daily Electricity Use (probably the first result)
+
+Summary: "Daily energy use (kWh), demand (kW), and volume water treated (million gallons). 2010 through current. A second electric meter and account were added at the plant in March 2013. The usage and demand data from this meter are labeled as "Energy Use 2" and "Peak 2."
+
+The URL to the CSV file is provided at the website above (or copy from below):
+
+```{r}
+monroe_wt <- read_csv("https://data.bloomington.in.gov/dataset/2c81cfe3-62c2-46ed-8fcf-83c1880301d1/resource/13c8f7aa-af51-4008-80a9-56415c7c931e/download/mwtpdailyelectricitybclear.csv") %>%
+  clean_names()
+
+monroe_ts <- monroe_wt %>%
+  mutate(date = mdy(date)) %>% # Convert date to a stored date class
+  mutate(record_month = month(date)) %>% # Add column w/ month number
+  mutate(month_name = month.abb[record_month]) %>% # Add column w/ month abbreviation
+  mutate(month_name = fct_reorder(month_name, record_month)) # Make month name a factor & reorder based on values in record_month column
+
+ggplot(data = monroe_ts, aes(x = month_name, y = total_k_wh)) +
+  geom_jitter(aes(color = month_name),
+          	show.legend = FALSE,
+          	alpha = 0.5,
+          	size = 0.3,
+          	width = 0.2)
+```
+
+PART 1: INTERACTIVE RMARKDOWN
+---
+title: 'Part 1: Interactive RMarkdown'
+author: "Allison Horst"
+output: html_notebook
+runtime: shiny
+---
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(palmerpenguins)
+```
+ 
+To create this document, make sure to choose the "Shiny document" option when you create the file! That will add the `runtime: shiny` line to your YAML, and give you some nice examples you can check out.
+ 
+Once you create the new RMarkdown Shiny document, click 'Run Document' up top to see what appears. An interactive document where users can change what they see!
+ 
+How cool is this for your boss, client, etc? Some of the benefits of an interactive app, without the bulk -- this is a nice option for simple & sleek documents where you want the user to have some flexibility about variables, etc. that appear in a graph or table.
+ 
+Let's make something new.
+ 
+### Attach packages
+ 
+In the setup chunk, attach:
+ 
+- `tidyverse`
+- `palmerpenguins`
+ 
+### Add some interactivity!
+ 
+```{r flippers, echo=FALSE}
+inputPanel(
+  selectInput(inputId = "pick_spp", label = "Pick penguin species:",
+          	choices = c("Adélie" = "Adelie", "Chinstrap", "Gentoo"), selected = "Adelie"),
+ 
+  sliderInput("pt_size", label = "Set point size:",
+          	min = 1, max = 10, value = 5, step = 0.5)
+)
+ 
+penguin_set <- reactive({
+  penguins %>%
+  filter(species == input$pick_spp)
+})
+ 
+renderPlot({
+  ggplot(data = penguin_set(), aes(x = flipper_length_mm, y = body_mass_g)) +
+	geom_point(size = input$pt_size)
+})
+```
+ 
+...which is pretty cool.
+ 
+You can publish to a free [shinyapps.io](https://www.shinyapps.io/) account!
+
+ 
+
+ 
+PART 3: SHINY THEMING WITH shinythemes & bslib
+ 
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    http://shiny.rstudio.com/
+#
+ 
+library(shiny)
+library(bslib)
+ 
+# In console, run bs_theme_preview() to play around with different things!
+ 
+# See ?bs_theme() for more options & information.
+ 
+my_theme <- bs_theme(
+  bg = "pink",
+  fg = "purple",
+  primary = "yellow",
+  base_font = font_google("Delius")
+)
+ 
+# Define UI for application that draws a histogram
+ui <- fluidPage(theme = my_theme,
+ 
+	# Application title
+    titlePanel("Old Faithful Geyser Data"),
+ 
+	# Sidebar with a slider input for number of bins
+	sidebarLayout(
+    	sidebarPanel(
+            sliderInput("bins",
+                        "Number of bins:",
+                  	  min = 1,
+                        max = 50,
+                        value = 30)
+    	),
+ 
+    	# Show a plot of the generated distribution
+    	mainPanel(
+           plotOutput("distPlot")
+    	)
+	)
+)
+ 
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+ 
+	output$distPlot <- renderPlot({
+    	# generate bins based on input$bins from ui.R
+    	x	<- faithful[, 2]
+    	bins <- seq(min(x), max(x), length.out = input$bins + 1)
+ 
+    	# draw the histogram with the specified number of bins
+    	hist(x, breaks = bins, col = 'darkgray', border = 'white')
+	})
+}
+ 
+# Run the application
+shinyApp(ui = ui, server = server)
