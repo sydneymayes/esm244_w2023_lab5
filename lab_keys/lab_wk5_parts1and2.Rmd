@@ -15,7 +15,6 @@ library(here)
 
 # For Part 1 (PCA)
 library(ggfortify) # For PCA biplot
-library(palmerpenguins)
 library(patchwork)
 
 # For Part 2 (ggplot customization)
@@ -29,14 +28,27 @@ library(plotly) # Interactive graphs
 
 Principal components analysis is an ordination method allowing us to glean as much about our multivariate data as possible in a simplified number of dimensions.
 
-Here, we'll use the `penguins` data within the `palmerpenguins` R package to explore variable relationships and clustering by species in a PCA biplot. For this example with PCA, we will only use the structure size measurements (bill length and depth, mass, and flipper length).
+Here, we'll use [data from the Human Development Index](https://hdr.undp.org/data-center) (raw data and metadata are saved in the `data` folder in case you'd like to explore in more detail).  This is a selected set of variables:
+
+* Life expectancy, inequality in life expectancy
+* Gross per capita national income, inequality in income
+* Expected years of schooling, mean years of school
+* CO2 production per capita, material footprint (tonnes per capita)
+* Latitude
+
+PCA requires continuous numeric data with no NAs.  So we must drop categorical and character data, and exclude any rows with NAs.  We should also rescale so all numeric variables have a mean 0 and sd 1.
 
 ```{r}
-penguin_clean <- penguins %>%
-  drop_na()
+hdi_data <- read_csv(here('data/hdi_clean.csv')) %>%
+  drop_na() %>%
+  mutate(hdicode = factor(hdicode, levels = c('Low', 'Medium', 'High', 'Very High')))
 
-penguin_pca <- penguin_clean %>%
-  dplyr::select(body_mass_g, ends_with("_mm")) %>%
+# glimpse(hdi_data)
+
+hdi_pca <- hdi_data %>%
+  dplyr::select(where(is.numeric)) %>%
+  # dplyr::select(-iso3, -country, -hdicode)) %>%
+  # dplyr::select(ends_with('2021'), lat) %>%
   scale() %>%
   prcomp()
 ```
@@ -44,20 +56,21 @@ penguin_pca <- penguin_clean %>%
 
 ``` {r}
 # See the loadings (weighting for each principal component)
-penguin_pca$rotation
+hdi_pca$rotation
 ```
 
 ## Biplot loadings by hand
 
 
 ```{r}
-loadings_df <- data.frame(penguin_pca$rotation) %>%
+loadings_df <- data.frame(hdi_pca$rotation * 8) %>%
   mutate(axis = row.names(.))
 
-new_pts_df <- data.frame(penguin_pca$x)
+new_pts_df <- data.frame(hdi_pca$x)
 
 ggplot() +
-  geom_point(data = new_pts_df, aes(x = PC1, y = PC2), color = 'blue') +
+  geom_point(data = new_pts_df, aes(x = PC1, y = PC2, color = hdicode), 
+             color = 'blue') +
   geom_segment(data = loadings_df,
                x = 0, y = 0, aes(xend = PC1, yend = PC2, group = axis),
                arrow = arrow(length = unit(.25, 'cm'))) +
@@ -69,17 +82,17 @@ ggplot() +
 and by autoplot
 
 ``` {r}
-autoplot(penguin_pca,
-     	data = penguin_clean,
+autoplot(hdi_pca,
+     	data = hdi_data,
      	loadings = TRUE,
-     	colour = 'species',
+     	colour = 'hdicode',
      	loadings.label = TRUE,
      	loadings.colour = "black",
      	loadings.label.colour = "black",
      	loadings.label.vjust = -0.5
      	) +
-  scale_color_manual(values = c("blue","purple","orange")) +
-  scale_fill_manual(values = c("blue","purple","orange")) +
+  scale_color_manual(values = c('red', 'orange', 'yellowgreen', 'darkgreen')) +
+  scale_fill_manual(values = c('red', 'orange', 'yellowgreen', 'darkgreen')) +
   theme_minimal()
 
 # It's not perfect, but it's enough for now...
@@ -89,9 +102,9 @@ autoplot(penguin_pca,
 
 first by hand, then by screeplot
 ```{r}
-sd_vec <- penguin_pca$sdev
+sd_vec <- hdi_pca$sdev
 var_vec <- sd_vec^2 ### standard deviation is sqrt of variance!
-pc_names <- colnames(penguin_pca$rotation)
+pc_names <- colnames(hdi_pca$rotation)
 
 pct_expl_df <- data.frame(v = var_vec,
                           pct_v = var_vec / sum(var_vec),
@@ -106,11 +119,11 @@ ggplot(pct_expl_df, aes(x = pc, y = v)) +
 
 ```{r}
 # Variance explained by each PC
-screeplot(penguin_pca, type = "lines")
-screeplot(penguin_pca, type = "barplot")
+screeplot(hdi_pca, type = "lines")
+screeplot(hdi_pca, type = "barplot")
 ```
 
-#####
+-----
 
 
 # Part 2: `ggplot` customization & reading in different file types
@@ -194,135 +207,3 @@ ggplot(data = monroe_ts, aes(x = month_name, y = total_kwh)) +
 ```
 
 
-#####
-
- 
-# PART 3: SHINY THEMING WITH shinythemes & bslib
-
-In a new repo (or existing repo), create a new Shiny web app file.
-
-```
-#
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
- 
-library(shiny)
-library(bslib)
- 
-# In console, run bs_theme_preview() to play around with different things!
- 
-# See ?bs_theme() for more options & information.
- 
-my_theme <- bs_theme(
-  bg = "pink",
-  fg = "purple",
-  primary = "yellow",
-  base_font = font_google("Delius")
-)
- 
-# Define UI for application that draws a histogram
-ui <- fluidPage(theme = my_theme,
- 
-	# Application title
-    titlePanel("Old Faithful Geyser Data"),
- 
-	# Sidebar with a slider input for number of bins
-	sidebarLayout(
-    	sidebarPanel(
-            sliderInput("bins",
-                        "Number of bins:",
-                  	  min = 1,
-                        max = 50,
-                        value = 30)
-    	),
- 
-    	# Show a plot of the generated distribution
-    	mainPanel(
-           plotOutput("distPlot")
-    	)
-	)
-)
- 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
- 
-	output$distPlot <- renderPlot({
-    	# generate bins based on input$bins from ui.R
-    	x	<- faithful[, 2]
-    	bins <- seq(min(x), max(x), length.out = input$bins + 1)
- 
-    	# draw the histogram with the specified number of bins
-    	hist(x, breaks = bins, col = 'darkgray', border = 'white')
-	})
-}
- 
-# Run the application
-shinyApp(ui = ui, server = server)
-```
-
-#####
-
-# PART 4: INTERACTIVE RMARKDOWN
-
-Create a new R Markdown, but in the left hand pane, instead of "Document", choose "Shiny" then "Shiny Document" - it should have a .yml header that looks like
-
----
-title: 'Part 4: Interactive RMarkdown'
-author: "Allison Horst"
-output: html_notebook
-runtime: shiny
----
- 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(palmerpenguins)
-```
- 
-To create this document, make sure to choose the "Shiny document" option when you create the file! That will add the `runtime: shiny` line to your YAML, and give you some nice examples you can check out.
- 
-Once you create the new RMarkdown Shiny document, click 'Run Document' up top to see what appears. An interactive document where users can change what they see!
- 
-How cool is this for your boss, client, etc? Some of the benefits of an interactive app, without the bulk -- this is a nice option for simple & sleek documents where you want the user to have some flexibility about variables, etc. that appear in a graph or table.
- 
-Let's make something new.
- 
-### Attach packages
- 
-In the setup chunk, attach:
- 
-- `tidyverse`
-- `palmerpenguins`
- 
-### Add some interactivity!
- 
-```{r flippers, echo=FALSE}
-inputPanel(
-  selectInput(inputId = "pick_spp", label = "Pick penguin species:",
-          	choices = c("Adélie" = "Adelie", "Chinstrap", "Gentoo"), selected = "Adelie"),
- 
-  sliderInput("pt_size", label = "Set point size:",
-          	min = 1, max = 10, value = 5, step = 0.5)
-)
- 
-penguin_set <- reactive({
-  penguins %>%
-  filter(species == input$pick_spp)
-})
- 
-renderPlot({
-  ggplot(data = penguin_set(), aes(x = flipper_length_mm, y = body_mass_g)) +
-	geom_point(size = input$pt_size)
-})
-```
- 
-...which is pretty cool.
- 
-You can publish to a free [shinyapps.io](https://www.shinyapps.io/) account!
-
- 
