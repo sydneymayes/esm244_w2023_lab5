@@ -1,0 +1,77 @@
+---
+title: 'Lab 5, Pt. 2: gg plot customization and reading files'
+author: "Sydney Mayes"
+date: "2023-02-09"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+#YAML header for more options
+
+```{r setup, echo = TRUE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(here)
+
+library(readxl)
+library(gghighlight)
+library(lubridate)
+library(plotly)
+library(janitor)
+```
+
+### Read in Excel file, wrangle the data
+```{r}
+fish_noaa <- readxl::read_excel(here('data', 'foss_landings.xlsx')) %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character), tolower)) %>% #makes character class lowercase
+  mutate(nmfs_name = str_sub(nmfs_name, end = -4)) %>% #goes all the way to 4th from last letter
+  filter(confidentiality == 'public')
+```
+
+```{r}
+fish_plot <- ggplot(data = fish_noaa, 
+                    aes(x = year, y = pounds, group = nmfs_name)) +
+  geom_line(aes(color = nmfs_name)) +
+  theme_minimal()
+fish_plot
+
+### make it interactive
+ggplotly(fish_plot)
+
+### highlight series based on condition(s)
+ggplot(data = fish_noaa, aes(x = year, y = pounds, group = nmfs_name)) +
+  geom_line() +
+  gghighlight(nmfs_name == 'rockfishes') + ### highlights just this group
+  theme_minimal()
+
+### highlight just the fishes
+
+ggplot(data = fish_noaa, aes(x = year, y = pounds, group = nmfs_name)) +
+  geom_line(aes(color = nmfs_name)) +
+  gghighlight(max(pounds) > 1e8) + # Highlight high-catch
+  theme_minimal()
+```
+
+
+# Reads in data from web
+```{r}
+monroe_wt <- read_csv('https://raw.githubusercontent.com/oharac/esm244_w2023_lab5/master/data/MWTP_Elec_Daily.csv') %>% 
+  janitor::clean_names()
+
+monroe_ts <- monroe_wt %>% 
+  mutate(date = lubridate::mdy(date)) %>% #makes it a date class
+  mutate(record_month = lubridate::month(date)) %>% 
+  mutate(month_name = month.abb[record_month]) %>% #month name is a character so will try to print it out in alphabetical order. below, we change that to a catergorical variable
+  mutate(month_name = fct_reorder(month_name, record_month))
+
+ggplot(data = monroe_ts, aes(x = month_name, y = total_kwh)) +
+  geom_jitter(aes(color = month_name),
+              show.legend = FALSE, 
+              alpha = .5, 
+              size = .3,
+              width = 0.2) + 
+  theme_classic()
+```
+
